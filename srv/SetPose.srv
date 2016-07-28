@@ -1,5 +1,6 @@
 string pose_name
 float64 time
+string  interpolation_method
 ---
 bool success
 string status_message

@@ -44,6 +44,7 @@
 #include <queue>
 #include <thread>
 #include <cmath> // M_PI
+#include <Eigen/Dense>
 #include <memory> //shared_ptr
 #include <functional> // bind
 
@@ -68,20 +69,18 @@
 float PI = 3.1415926536;
 
 //enum class InterpolationType { linear, splite, polynomial5 };
-enum class PoseName{TPose, NPose, APose, FPose, BPose};
+enum class PoseName{TPose, NPose, APose, FPose, BPose, MPose};
 enum class PreRecordedTrajectoryName{OnlyRShLat_0_90_0};
+enum class InterpolationMethod{linear, polynomial5};
 
-class WBTrajectoryGenerator {
-public:
-    WBTrajectoryGenerator();
-    ~WBTrajectoryGenerator();
-
-    int getWBJoints();
-};
-
-int WBTrajectoryGenerator::getWBJoints() {
-  return 0;
-}
+typedef Eigen::Matrix<double, 6, 6> Matrix6d;
+typedef Eigen::Matrix<double, 6, 1> ColumnVector6d;
+typedef Eigen::Matrix<double, 5, 1> ColumnVector5d;
+typedef Eigen::Matrix<double, 4, 1> ColumnVector4d;
+typedef Eigen::Matrix<double, 1, 6> RowVector6d;
+typedef Eigen::Matrix<double, 1, 5> RowVector5d;
+typedef Eigen::Matrix<double, 1, 4> RowVector4d;
+typedef Eigen::Matrix<double, 1, 3> RowVector3d;
 
 
 class Node {
@@ -119,10 +118,12 @@ private:
     int GetLastPoint();
     int InitializeTrajectory();
 
+    int Polynomial5Interpolation(double x0, double xf, double dx0, double dxf, double ddx0, double ddxf, unsigned int n, std::vector<double>&xtraj, std::vector<double>&dxtraj);
     int JointLinearInterpolation(size_t joint_id, double final_point, unsigned int n_steps);
     int JointLinearTrajectory(size_t joint_id, std::vector<double>& point_array, std::vector<unsigned int>& n_steps);
     int WBJointLinearInterpolation(std::vector<size_t>& joint_id, std::vector<double>& final_point, std::vector<unsigned int>& n_steps);
-    int SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj);
+    int WBJointPolynomial5Interpolation(std::vector<size_t>& joint_id, std::vector<double>& final_point, std::vector<double>& final_velocity, std::vector<unsigned int>& n_steps);
+    int SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj, InterpolationMethod interpolation_method);
     int PreRecordedTrajectory(PreRecordedTrajectoryName trajectory_name);
     int CleanAllTrajectories();
     int CleanJointTrajectory(size_t joint_id);
@@ -185,9 +186,28 @@ void Node::Run()  {
 
   ROS_INFO_STREAM("Running at " << node_rate_<< " Hz ...");
 
+  //unsigned int n = 0.5*node_rate_;
+  //double x0 = 1;
+  //double xf = 3;
+  //double dx0 = 0;
+  //double dxf = 0;
+  //double ddx0 = 0;
+  //double ddxf = 0;
+  //std::vector<double> xtraj;
+  //std::vector<double> dxtraj;
+  //Polynomial5Interpolation( x0, xf, dx0, dxf, ddx0, ddxf, n, xtraj, dxtraj);
+  //for (unsigned int ii = 0; ii < xtraj.size(); ii++){
+  //  std::cout << xtraj.at(ii) << ", ";
+  //}
+  //std::cout << std::endl;
+  //for (unsigned int ii = 0; ii < dxtraj.size(); ii++){
+  //  std::cout << dxtraj.at(ii) << ", ";
+  //}
+  //std::cout << std::endl;
+
   while (ros::ok()) {
 
-    ROS_INFO_STREAM((msg_vector_.at(30)).data);
+    //ROS_INFO_STREAM((msg_vector_.at(30)).data);
 
     if (GetLastPoint() != 0)
       ROS_ERROR_STREAM("Error getting last point in trajectory");
@@ -262,6 +282,90 @@ int Node::WBJointLinearInterpolation(std::vector<size_t>& joint_id, std::vector<
 
   return 0;
 }
+
+int Node::WBJointPolynomial5Interpolation(std::vector<size_t>& joint_id, std::vector<double>& final_point, std::vector<double>& final_velocity, std::vector<unsigned int>& n_steps) {
+
+  // Calculate The Coefficients
+  Matrix6d A;
+  ColumnVector6d b;
+  std::vector<ColumnVector6d> coeffs_vect;
+  std::vector<ColumnVector5d> dcoeffs_vect;
+  ColumnVector6d coeffs;
+  ColumnVector5d dcoeffs;
+  unsigned int n;
+  double x0, xf, dx0, dxf, ddx0, ddxf;
+
+  std::vector<bool> joint_interp_complete;
+  std::vector<unsigned int> current_n_vect;
+  bool interp_complete = false;
+  double request_joint_angle;
+
+  ddx0 = 0;
+  ddxf = 0;
+
+  for (unsigned int ii = 0; ii < final_point.size(); ii++) {
+    n = n_steps.at(ii);
+
+    x0 = trajectory_vector_.at(joint_id.at(ii)).back();
+
+    xf = deg2rad(final_point.at(ii));
+
+    dx0 = 0; //TODO : Is it ok to assume this?
+
+    dxf = deg2rad(final_velocity.at(ii));
+
+    A << 0,              0,              0,        0,       0,    1,
+        pow(n,5),       pow(n,4),     pow(n,3), pow(n,2),   n,    1,
+        0,              0,             0,        0,       1,    0,
+        5*pow(n,4),   4*pow(n,3),   3*pow(n,2),   2*n,      1,    0,
+        0,              0,           0,          2,       0,    0,
+        20*pow(n,3),  12*pow(n,2),    6*n,         2,       0,    0;
+    b << x0, xf, dx0, dxf, 0, 0;
+    coeffs = A.colPivHouseholderQr().solve(b);
+    coeffs_vect.push_back(coeffs);
+
+    dcoeffs << 5*coeffs_vect.at(ii)(0,0), 4*coeffs_vect.at(ii)(1,0), 3*coeffs_vect.at(ii)(2,0), 2*coeffs_vect.at(ii)(3,0), coeffs_vect.at(ii)(4,0);
+    dcoeffs_vect.push_back(dcoeffs);
+
+    //ROS_WARN_STREAM(x0 << " "<< xf << " "<< dx0  << " "<<dxf << " " << ddx0 << " " << ddxf);
+
+    joint_interp_complete.push_back(false);
+    current_n_vect.push_back(0);
+  }
+
+
+
+  while (!interp_complete) {
+    for (unsigned long ii=0; ii < joint_id.size(); ii++) {
+
+      if (current_n_vect.at(ii) <= n_steps.at(ii)) {
+        trajectory_vector_.at(joint_id.at(ii)).push(coeffs_vect.at(ii)(0,0)*pow(current_n_vect.at(ii),5) + coeffs_vect.at(ii)(1,0)*pow(current_n_vect.at(ii),4) + coeffs_vect.at(ii)(2,0)*pow(current_n_vect.at(ii),3) + coeffs_vect.at(ii)(3,0)*pow(current_n_vect.at(ii),2) + coeffs_vect.at(ii)(4,0)*current_n_vect.at(ii) + coeffs_vect.at(ii)(5,0));
+
+        //if (joint_id.at(ii) == 31) {
+        //  ROS_INFO_STREAM(trajectory_vector_.at(ii).back());
+        //    double velocity;
+        //    velocity = coeffs_vect.at(ii)(0,0)*pow(current_n_vect.at(ii),4) + coeffs_vect.at(ii)(1,0)*pow(current_n_vect.at(ii),3) + coeffs_vect.at(ii)(2,0)*pow(current_n_vect.at(ii),2) + coeffs_vect.at(ii)(3,0)*current_n_vect.at(ii) + coeffs_vect.at(ii)(4,0);
+        //    ROS_INFO_STREAM(velocity);
+        //}
+        current_n_vect.at(ii)+=1;
+      }
+      else {
+        joint_interp_complete.at(ii) = true;
+      }
+
+
+      // Evaluate if all interpolations are complete
+      if (ii==0)
+        interp_complete = joint_interp_complete.at(ii);
+      else
+        interp_complete = interp_complete && joint_interp_complete.at(ii);
+
+    }
+  }
+
+  return 0;
+}
+
 int Node::PreRecordedTrajectory(PreRecordedTrajectoryName trajectory_name) {
 
   std::vector<size_t> joint_id_vector;
@@ -297,10 +401,11 @@ int Node::PreRecordedTrajectory(PreRecordedTrajectoryName trajectory_name) {
   return 0;
 }
 
-int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj) {
+int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj, InterpolationMethod interpolation_method) {
 
   std::vector<size_t> joint_id_vector;
   std::vector<double> final_position_vector;
+  std::vector<double> final_velocity_vector;
   std::vector<unsigned int> n_steps_vector;
 
 
@@ -308,6 +413,7 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     for (int ii=6; ii <= 36; ii++) {
       joint_id_vector.push_back(ii);
       final_position_vector.push_back(0.0);
+      final_velocity_vector.push_back(0.0);
       n_steps_vector.push_back(n_steps);
     }
     //for (int ii=0; ii < joint_id_vector.size(); ii++) {
@@ -318,18 +424,21 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     if (clean_prev_traj)
       CleanAllTrajectories();
 
-    WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    if (interpolation_method == InterpolationMethod::linear)
+      WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    else if (interpolation_method == InterpolationMethod::polynomial5)
+      WBJointPolynomial5Interpolation(joint_id_vector, final_position_vector, final_velocity_vector, n_steps_vector);
   }
   else if (pose_name == PoseName::TPose) {
     for (int ii=6; ii <= 36; ii++) {
       joint_id_vector.push_back(ii);
       final_position_vector.push_back(0);
+      final_velocity_vector.push_back(0.0);
       n_steps_vector.push_back(n_steps);
     }
     // Starting from ID 6
     // Left Arm
     final_position_vector.at(21 - 6) = 0;
-    //final_position_vector.at(22 - 6) = PI/2;
     final_position_vector.at(22 - 6) = 90;
     final_position_vector.at(23 - 6) = 0;
     final_position_vector.at(24 - 6) = 0;
@@ -338,7 +447,6 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     final_position_vector.at(27 - 6) = 0;
     // Right Arm
     final_position_vector.at(30 - 6) = 0;
-    //final_position_vector.at(31 - 6) = -PI/2;
     final_position_vector.at(31 - 6) = -90;
     final_position_vector.at(32 - 6) = 0;
     final_position_vector.at(33 - 6) = 0;
@@ -354,17 +462,20 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     if (clean_prev_traj)
       CleanAllTrajectories();
 
-    WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    if (interpolation_method == InterpolationMethod::linear)
+      WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    else if (interpolation_method == InterpolationMethod::polynomial5)
+      WBJointPolynomial5Interpolation(joint_id_vector, final_position_vector, final_velocity_vector, n_steps_vector);
   }
   else if (pose_name == PoseName::APose) {
     for (int ii=6; ii <= 36; ii++) {
       joint_id_vector.push_back(ii);
       final_position_vector.push_back(0);
+      final_velocity_vector.push_back(0.0);
       n_steps_vector.push_back(n_steps);
     }
     // Starting from ID 6
     // Left Arm
-    //final_position_vector.at(21 - 6) = -PI/2;
     final_position_vector.at(21 - 6) = -79;
     final_position_vector.at(22 - 6) = 60;
     final_position_vector.at(23 - 6) = 45;
@@ -373,7 +484,6 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     final_position_vector.at(26 - 6) = 0;
     final_position_vector.at(27 - 6) = 0;
     // Right Arm
-    //final_position_vector.at(30 - 6) = -PI/2;
     final_position_vector.at(30 - 6) = -79;
     final_position_vector.at(31 - 6) = -60;
     final_position_vector.at(32 - 6) = -45;
@@ -390,17 +500,20 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     if (clean_prev_traj)
       CleanAllTrajectories();
 
-    WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    if (interpolation_method == InterpolationMethod::linear)
+      WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    else if (interpolation_method == InterpolationMethod::polynomial5)
+      WBJointPolynomial5Interpolation(joint_id_vector, final_position_vector, final_velocity_vector, n_steps_vector);
   }
   else if (pose_name == PoseName::FPose) {
     for (int ii=6; ii <= 36; ii++) {
       joint_id_vector.push_back(ii);
       final_position_vector.push_back(0);
+      final_velocity_vector.push_back(0.0);
       n_steps_vector.push_back(n_steps);
     }
     // Starting from ID 6
     // Left Arm
-    //final_position_vector.at(21 - 6) = -PI/2;
     final_position_vector.at(21 - 6) = 0;
     final_position_vector.at(22 - 6) = 90;
     final_position_vector.at(23 - 6) = 90;
@@ -409,7 +522,6 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     final_position_vector.at(26 - 6) = 0;
     final_position_vector.at(27 - 6) = 0;
     // Right Arm
-    //final_position_vector.at(30 - 6) = -PI/2;
     final_position_vector.at(30 - 6) = 0;
     final_position_vector.at(31 - 6) = -90;
     final_position_vector.at(32 - 6) = -90;
@@ -426,17 +538,20 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     if (clean_prev_traj)
       CleanAllTrajectories();
 
-    WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    if (interpolation_method == InterpolationMethod::linear)
+      WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    else if (interpolation_method == InterpolationMethod::polynomial5)
+      WBJointPolynomial5Interpolation(joint_id_vector, final_position_vector, final_velocity_vector, n_steps_vector);
   }
   else if (pose_name == PoseName::BPose) {
     for (int ii=6; ii <= 36; ii++) {
       joint_id_vector.push_back(ii);
       final_position_vector.push_back(0);
+      final_velocity_vector.push_back(0.0);
       n_steps_vector.push_back(n_steps);
     }
     // Starting from ID 6
     // Left Arm
-    //final_position_vector.at(21 - 6) = -PI/2;
     final_position_vector.at(21 - 6) = 0;
     final_position_vector.at(22 - 6) = 90;
     final_position_vector.at(23 - 6) = 0;
@@ -445,7 +560,6 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     final_position_vector.at(26 - 6) = 0;
     final_position_vector.at(27 - 6) = 0;
     // Right Arm
-    //final_position_vector.at(30 - 6) = -PI/2;
     final_position_vector.at(30 - 6) = 0;
     final_position_vector.at(31 - 6) = -90;
     final_position_vector.at(32 - 6) = 0;
@@ -462,7 +576,48 @@ int Node::SetPose(PoseName pose_name, unsigned int n_steps, bool clean_prev_traj
     if (clean_prev_traj)
       CleanAllTrajectories();
 
-    WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    if (interpolation_method == InterpolationMethod::linear)
+      WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    else if (interpolation_method == InterpolationMethod::polynomial5)
+      WBJointPolynomial5Interpolation(joint_id_vector, final_position_vector, final_velocity_vector, n_steps_vector);
+  }
+  else if (pose_name == PoseName::MPose) {
+    for (int ii=6; ii <= 36; ii++) {
+      joint_id_vector.push_back(ii);
+      final_position_vector.push_back(0);
+      final_velocity_vector.push_back(0.0);
+      n_steps_vector.push_back(n_steps);
+    }
+    // Starting from ID 6
+    // Left Arm
+    final_position_vector.at(21 - 6) = 0;
+    final_position_vector.at(22 - 6) = 90;
+    final_position_vector.at(23 - 6) = -90;
+    final_position_vector.at(24 - 6) = -90;
+    final_position_vector.at(25 - 6) = 0;
+    final_position_vector.at(26 - 6) = 0;
+    final_position_vector.at(27 - 6) = 0;
+    // Right Arm
+    final_position_vector.at(30 - 6) = 0;
+    final_position_vector.at(31 - 6) = -90;
+    final_position_vector.at(32 - 6) = 90;
+    final_position_vector.at(33 - 6) = -90;
+    final_position_vector.at(34 - 6) = 0;
+    final_position_vector.at(35 - 6) = 0;
+    final_position_vector.at(36 - 6) = 0;
+
+    //for (int ii=0; ii < joint_id_vector.size(); ii++) {
+    //  ROS_INFO_STREAM("Final Position "<< ii <<" :" << final_position_vector.at(ii));
+    //}
+
+    // Stop Previous Trajectory
+    if (clean_prev_traj)
+      CleanAllTrajectories();
+
+    if (interpolation_method == InterpolationMethod::linear)
+      WBJointLinearInterpolation(joint_id_vector, final_position_vector, n_steps_vector);
+    else if (interpolation_method == InterpolationMethod::polynomial5)
+      WBJointPolynomial5Interpolation(joint_id_vector, final_position_vector, final_velocity_vector, n_steps_vector);
   }
 
 
@@ -507,10 +662,18 @@ bool Node::WBJointLinearInterpolationSrv(walkman_ros_trajgen::WBJointLinearInter
     // Stop Previous Trajectory
     CleanAllTrajectories();
 
-    if(WBJointLinearInterpolation(req.joint_id , req.final_position, n_steps))
-      res.success = 0;
-    else
-      res.success = 1;
+    if (!req.interpolation_method.compare("linear") || !req.interpolation_method.compare("LINEAR") || !req.interpolation_method.compare("Linear")) {
+      if(WBJointLinearInterpolation(req.joint_id , req.final_position, n_steps))
+        res.success = 0;
+      else
+        res.success = 1;
+    }
+    else {
+      if(WBJointPolynomial5Interpolation(req.joint_id , req.final_position, req.final_velocity, n_steps))
+        res.success = 0;
+      else
+        res.success = 1;
+    }
 
     res.status_message = "OK: Time WB Joint Linear Interpolation";
 
@@ -528,12 +691,22 @@ bool Node::JointLinearInterpolationSrv(walkman_ros_trajgen::JointLinearInterpola
     // Stop Previous Trajectory
     CleanJointTrajectory(req.joint_id);
 
-    if(JointLinearInterpolation(req.joint_id , req.final_position, req.number_steps))
-      res.success = 0;
-    else
-      res.success = 1;
+    if (!req.interpolation_method.compare("linear") || !req.interpolation_method.compare("LINEAR") || !req.interpolation_method.compare("Linear")) {
+      if(JointLinearInterpolation(req.joint_id , req.final_position, req.number_steps))
+        res.success = 0;
+      else
+        res.success = 1;
 
-    res.status_message = "OK: Number of steps Joint Linear Interpolation";
+      res.status_message = "OK: Number of steps Joint Linear Interpolation";
+    }
+    else {
+      if(JointLinearInterpolation(req.joint_id , req.final_position, req.number_steps))
+        res.success = 0;
+      else
+        res.success = 1;
+
+      res.status_message = "WARNING: No yet implemented. Using Joint Linear Interpolation";
+    }
   }
   else if (req.time != 0) {
     unsigned int n_steps = req.time*node_rate_;
@@ -541,12 +714,24 @@ bool Node::JointLinearInterpolationSrv(walkman_ros_trajgen::JointLinearInterpola
     // Stop Previous Trajectory
     CleanJointTrajectory(req.joint_id);
 
-    if(JointLinearInterpolation(req.joint_id , req.final_position, n_steps))
-      res.success = 0;
-    else
-      res.success = 1;
+    if (!req.interpolation_method.compare("linear") || !req.interpolation_method.compare("LINEAR") || !req.interpolation_method.compare("Linear")) {
+      if(JointLinearInterpolation(req.joint_id , req.final_position, n_steps))
+        res.success = 0;
+      else
+        res.success = 1;
 
-    res.status_message = "OK: Time Joint Linear Interpolation";
+      res.status_message = "OK: Time Joint Linear Interpolation";
+    }
+    else {
+      ROS_WARN_STREAM("HOLAAAA");
+      if(JointLinearInterpolation(req.joint_id , req.final_position, n_steps))
+        res.success = 0;
+      else
+        res.success = 1;
+
+      res.status_message = "WARNING: No yet implemented. Using Joint Linear Interpolation";
+    }
+
   }
   else {
     res.success = 0;
@@ -590,6 +775,7 @@ bool Node::SetPoseSrv(walkman_ros_trajgen::SetPose::Request &req,
                      walkman_ros_trajgen::SetPose::Response &res) {
 
   PoseName  pose_name;
+  InterpolationMethod interpolation_method;
 
   if (!req.pose_name.compare("NPose")) {
     pose_name = PoseName::NPose;
@@ -611,16 +797,28 @@ bool Node::SetPoseSrv(walkman_ros_trajgen::SetPose::Request &req,
     pose_name = PoseName::BPose;
     ROS_INFO_STREAM("Setting BPose");
   }
+  else if (!req.pose_name.compare("MPose")) {
+    pose_name = PoseName::MPose;
+    ROS_INFO_STREAM("Setting MPose");
+  }
   else {
     res.success = 0;
     res.status_message = "ERROR: No such pose";
     return false;
   }
 
+  if (!req.interpolation_method.compare("linear") || !req.interpolation_method.compare("LINEAR") || !req.interpolation_method.compare("Linear")) {
+    interpolation_method = InterpolationMethod::linear;
+  }
+  else {
+    interpolation_method = InterpolationMethod::polynomial5;
+  }
+
+
   if (req.time != 0) {
     unsigned int n_steps = req.time*node_rate_;
 
-    if(SetPose(pose_name, n_steps, true))
+    if(SetPose(pose_name, n_steps, true, interpolation_method))
       res.success = 0;
     else
       res.success = 1;
@@ -647,6 +845,8 @@ bool Node::PoseInterpolationSrv(walkman_ros_trajgen::PoseInterpolation::Request 
 
   CleanAllTrajectories(); //TODO: This should not be here
 
+  // By default Polynomial5 Trajectory with 0 velocity and acceleration
+
   for (unsigned int ii=0; ii < req.pose_array.size(); ii++) {
     if (req.pose_array.at(ii) == 'N') {
       pose_name = PoseName::NPose;
@@ -668,6 +868,10 @@ bool Node::PoseInterpolationSrv(walkman_ros_trajgen::PoseInterpolation::Request 
       pose_name = PoseName::BPose;
       ROS_INFO_STREAM("Setting BPose");
     }
+    else if (req.pose_array.at(ii) == 'M') {
+      pose_name = PoseName::MPose;
+      ROS_INFO_STREAM("Setting MPose");
+    }
     else {
       res.success = 0;
       res.status_message = "ERROR: No such pose";
@@ -677,10 +881,18 @@ bool Node::PoseInterpolationSrv(walkman_ros_trajgen::PoseInterpolation::Request 
     if (req.time_array.at(ii) != 0) {
       n_steps = req.time_array.at(ii) * node_rate_;
 
-      if (SetPose(pose_name, n_steps, false))
-        res.success = 0;
-      else
-        res.success = 1;
+      if (!req.interpolation_method.compare("linear") || !req.interpolation_method.compare("LINEAR") || !req.interpolation_method.compare("Linear")) {
+        if (SetPose(pose_name, n_steps, false, InterpolationMethod::linear))
+          res.success = 0;
+        else
+          res.success = 1;
+      }
+      else {
+        if (SetPose(pose_name, n_steps, false, InterpolationMethod::polynomial5))
+          res.success = 0;
+        else
+          res.success = 1;
+      }
 
       res.status_message = "OK: Time Joint Pose";
     }
@@ -778,7 +990,7 @@ void Node::AdvertiseServices() {
   wb_joint_lin_interp_service_ = nh_->advertiseService(wb_joint_linear_interp_aso);
 
   // Advertise SetPose service
-  std::string set_pose_name = "/set_pose";
+  std::string set_pose_name = "set_pose";
   ros::AdvertiseServiceOptions set_pose_aso =
       ros::AdvertiseServiceOptions::create<walkman_ros_trajgen::SetPose>(
           set_pose_name,
@@ -910,6 +1122,51 @@ int Node::JointLinearTrajectory(size_t joint_id, std::vector<double> &point_arra
       else
         RepeatJointPosition(joint_id, n_steps.at(ii));
     }
+  }
+
+  return 0;
+}
+
+int Node::Polynomial5Interpolation(double x0, double xf, double dx0, double dxf, double ddx0, double ddxf,
+                                   unsigned int n, std::vector<double> &xtraj, std::vector<double> &dxtraj) {
+
+
+  Matrix6d A;
+  ColumnVector6d b;
+  RowVector6d coeffs;
+  RowVector5d dcoeffs;
+  ColumnVector6d coeffs2;
+  ColumnVector5d dcoeffs2;
+  //RowVector4d ddcoeffs;
+  n = n-1;
+  A << 0,              0,              0,        0,       0,    1,
+      pow(n,5),       pow(n,4),     pow(n,3), pow(n,2),   n,    1,
+        0,              0,             0,        0,       1,    0,
+      5*pow(n,4),   4*pow(n,3),   3*pow(n,2),   2*n,      1,    0,
+        0,              0,           0,          2,       0,    0,
+      20*pow(n,3),  12*pow(n,2),    6*n,         2,       0,    0;
+
+  b << x0, xf, dx0, dxf, ddx0, ddxf;
+
+  //coeffs = A.inverse() * b;
+  coeffs2 = A.colPivHouseholderQr().solve(b);
+
+  //double x;
+  //x = coeffs(0,5);
+  //ROS_INFO_STREAM("X is... " << x);
+
+  // Coefficients of derivatives
+  //dcoeffs << 5*coeffs(0,0), 4*coeffs(0,1), 3*coeffs(0,2), 2*coeffs(0,3), coeffs(0,4);
+  dcoeffs2 << 5*coeffs2(0,0), 4*coeffs2(1,0), 3*coeffs2(2,0), 2*coeffs2(3,0), coeffs2(4,0);
+  //ddcoeffs << 4*dcoeffs(1,1),3*dcoeffs(1,2),2*dcoeffs(1,3),dcoeffs(1,4);
+
+  for (unsigned int ii = 0 ; ii <= n ; ii++){
+    // With Inverse
+    //xtraj.push_back(coeffs(0,0)*pow(ii,5) + coeffs(0,1)*pow(ii,4) + coeffs(0,2)*pow(ii,3) + coeffs(0,3)*pow(ii,2) + coeffs(0,4)*ii + coeffs(0,5));
+    //dxtraj.push_back(dcoeffs(0,0)*pow(ii,4) + dcoeffs(0,1)*pow(ii,3) + dcoeffs(0,2)*pow(ii,2) + dcoeffs(0,3)*ii + dcoeffs(0,4));
+    // With Solve
+    xtraj.push_back(coeffs2(0,0)*pow(ii,5) + coeffs2(1,0)*pow(ii,4) + coeffs2(2,0)*pow(ii,3) + coeffs2(3,0)*pow(ii,2) + coeffs2(4,0)*ii + coeffs2(5,0));
+    dxtraj.push_back(dcoeffs2(0,0)*pow(ii,4) + dcoeffs2(1,0)*pow(ii,3) + dcoeffs2(2,0)*pow(ii,2) + dcoeffs2(3,0)*ii + dcoeffs2(4,0));
   }
 
   return 0;

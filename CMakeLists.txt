@@ -140,14 +140,14 @@ include_directories(
   ${EIGEN3_INCLUDE_DIR}
 )
 
-#file(GLOB TRAJGEN_SOURCES src/mvnbiomech/*.cpp)
-#file(GLOB TRAJGEN_HEADERS include/mvnbiomech/*.h)
+file(GLOB WALKMAN_TRAJGEN_SOURCES src/walkman_trajgen/*.cpp)
+file(GLOB WALKMAN_TRAJGEN_HEADERS include/walkman_trajgen/*.h)
    
-## Declare a C++ library
-#add_library(trajgen SHARED
-#   ${TRAJGEN_HEADERS}
-#   ${TRAJGEN_SOURCES}
-#)
+# C++ library
+add_library(walkman_trajgen SHARED
+   ${WALKMAN_TRAJGEN_HEADERS}
+   ${WALKMAN_TRAJGEN_SOURCES}
+)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
