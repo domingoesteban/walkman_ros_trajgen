@@ -1,0 +1,6 @@
+uint64 joint_id
+float64[] point_array
+float64[] time_array
+---
+bool success
+string status_message

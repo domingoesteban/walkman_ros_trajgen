@@ -1,0 +1,6 @@
+char[] pose_array
+float64[] time_array
+float64 time_between_poses
+---
+bool success
+string status_message

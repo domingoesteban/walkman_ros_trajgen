@@ -1,0 +1,5 @@
+string pose_name
+float64 time
+---
+bool success
+string status_message

@@ -1,0 +1,5 @@
+WALKMAN_ROS_TRAJGEN
+===================
+ROS package for the generation of trajectories for Walkman(Bigman) robot
+
+*NOTE:* For now only joint space trajectories are implemented

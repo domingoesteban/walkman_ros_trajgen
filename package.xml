@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<package>
+  <name>walkman_ros_trajgen</name>
+  <version>0.0.0</version>
+  <description>Walkman Trajectory Generator ROS package</description>
+
+  <maintainer email="Domingo.Esteban@iit.it">Domingo Esteban</maintainer>
+  <maintainer email="Brian.Delhaisse@iit.it">Brian Delhaisse</maintainer>
+
+  <license>TODO</license> <!--   BSD, MIT, Boost Software License, GPLv2, GPLv3, LGPLv2.1, LGPLv3 -->
+
+  <!-- Dependencies can be catkin packages or system dependencies -->
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- Packages needed at compile time: -->
+  <build_depend>roscpp</build_depend>
+  <build_depend>rospy</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>message_generation</build_depend>
+
+  <build_depend>cmake_modules</build_depend>
+  
+  <!-- Packages needed at runtime: -->
+  <run_depend>roscpp</run_depend>
+  <run_depend>rospy</run_depend>
+  <run_depend>std_msgs</run_depend>
+  <run_depend>cmake_modules</run_depend>
+  <run_depend>message_runtime</run_depend>
+
+  <!-- Use test_depend for packages you need only for testing: -->
+  <!--   <test_depend>gtest</test_depend> -->
+
+  <!-- The export tag contains other, unspecified, tags -->
+  <export>
+    <!-- Other tools can request additional information be placed here -->
+  </export>
+</package>
