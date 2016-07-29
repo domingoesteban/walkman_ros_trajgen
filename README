@@ -3,3 +3,16 @@ WALKMAN_ROS_TRAJGEN
 ROS package for the generation of trajectories for Walkman(Bigman) robot
 
 *NOTE:* For now only joint space trajectories are implemented
+
+
+RUNNING
+=======
+$ roslaunch bigman_gazebo bigman_world.launch
+
+$ rosrun walkman_ros_trajgen joint_trajgen
+
+$ rosrun rqt_service_caller rqt_service_caller
+
+$ rosrun walkman_ros_trajgen mvnbiomech_jointstate_logger
+
+$ GAZEBO_MASTER_URI=http://localhost:11345 gzclient
