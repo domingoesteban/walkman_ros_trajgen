@@ -18,10 +18,13 @@ LIST( APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  rospy
-  std_msgs
-  message_generation
+        roscpp
+        rospy
+        std_msgs
+        sensor_msgs
+        message_generation
+        rosmvnbiomech
+        mvnbiomech_ros
 )
 
 find_package(cmake_modules REQUIRED)
@@ -121,32 +124,40 @@ generate_messages(
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-  INCLUDE_DIRS include
+        INCLUDE_DIRS include
 #  LIBRARIES mvnbiomech
-  CATKIN_DEPENDS roscpp rospy std_msgs message_runtime
+        CATKIN_DEPENDS roscpp rospy std_msgs message_runtime
 #  DEPENDS system_lib
 )
 
 ###########
 ## Build ##
 ###########
-
-## Specify additional locations of header files
-## Your package locations should be listed before other locations
-# include_directories(include)
 include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIR}
+        include
+        include/mvnbiomech
+        ${catkin_INCLUDE_DIRS}
+        ${EIGEN3_INCLUDE_DIR}
 )
+
+file(GLOB MVNSOURCES src/mvnbiomech/*.cpp)
+file(GLOB MVNHEADERS include/mvnbiomech/*.h)
+
+## Declare a C++ library
+add_library(mvnbiomech SHARED
+        ${MVNHEADERS}
+        ${MVNSOURCES}
+        )
+
+
 
 file(GLOB WALKMAN_TRAJGEN_SOURCES src/walkman_trajgen/*.cpp)
 file(GLOB WALKMAN_TRAJGEN_HEADERS include/walkman_trajgen/*.h)
    
 # C++ library
 add_library(walkman_trajgen SHARED
-   ${WALKMAN_TRAJGEN_HEADERS}
-   ${WALKMAN_TRAJGEN_SOURCES}
+        ${WALKMAN_TRAJGEN_HEADERS}
+        ${WALKMAN_TRAJGEN_SOURCES}
 )
 
 ## Add cmake target dependencies of the library
@@ -164,6 +175,38 @@ target_link_libraries(joint_trajgen
 
 ## Cmake target dependencies
 add_dependencies(joint_trajgen
+        ${PROJECT_NAME}_gencpp
+        ${${PROJECT_NAME}_EXPORTED_TARGETS}
+        ${catkin_EXPORTED_TARGETS}
+        )
+
+## C++ executable
+add_executable(joint_trajgen_mvnbiomech src/joint-trajgen-and-mvnbiomech.cpp)
+
+## Specify libraries to link a library or executable target against
+target_link_libraries(joint_trajgen_mvnbiomech
+        ${catkin_LIBRARIES}
+        mvnbiomech
+        )
+
+## Cmake target dependencies
+add_dependencies(joint_trajgen_mvnbiomech
+        ${PROJECT_NAME}_gencpp
+        ${${PROJECT_NAME}_EXPORTED_TARGETS}
+        ${catkin_EXPORTED_TARGETS}
+        )
+
+## C++ executable
+add_executable(mvnbiomech_jointstate_logger src/mvnbiomech-jointstate-logger.cpp)
+
+## Specify libraries to link a library or executable target against
+target_link_libraries(mvnbiomech_jointstate_logger
+        ${catkin_LIBRARIES}
+        mvnbiomech
+        )
+
+## Cmake target dependencies
+add_dependencies(mvnbiomech_jointstate_logger
         ${PROJECT_NAME}_gencpp
         ${${PROJECT_NAME}_EXPORTED_TARGETS}
         ${catkin_EXPORTED_TARGETS}
