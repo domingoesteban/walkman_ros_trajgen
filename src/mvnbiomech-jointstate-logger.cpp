@@ -8,7 +8,6 @@
 
 // ROS
 #include <ros/ros.h>
-#include <std_msgs/Float64.h>
 #include <sensor_msgs/JointState.h>
 
 // XSENS
@@ -41,13 +40,16 @@ public:
 
 private:
     std::shared_ptr<ros::NodeHandle> nh_;
-    double node_rate_;
+    double logger_rate_;
 
     std::shared_ptr<std::thread> mvnbiomech_server_thread_;
     void MVNBiomechServerThread();
     std::vector<double> mvnbiomech_angles_;
 
+    void LogThread();
     std::string log_file_name;
+    std::shared_ptr<std::thread> log_thread_;
+
 
     // ROS Subscribers
     ros::Subscriber joint_state_subs_;
@@ -67,58 +69,23 @@ Node::Node() {
   mvnbiomech_angles_.resize(MVNSUIT_DOF);
   gazebo_angles_.resize(HUMANOID_DOF-6);
 
-  // Subscribe to joint_state
-  joint_state_subs_ = nh_->subscribe("/bigman/joint_states", 1, &Node::JointStateCallback, this);
 
-  // Get rate from Parameter
-  nh_->param("mvnbiomech_jointstate_logger_rate", node_rate_, 40.0);
+  // Get log rate from Parameter
+  nh_->param("mvnbiomech_jointstate_logger_rate", logger_rate_, 40.0);
 
   // MVNStudio Thread
   mvnbiomech_server_thread_.reset(new std::thread( &Node::MVNBiomechServerThread, this));
 
   // Log Thread
-  nh_->param<std::string>("log_file_name", log_file_name, "walkman_trajectories.txt");
+  log_thread_.reset(new std::thread( &Node::LogThread, this));
 
+  // Subscribe to joint_state
+  joint_state_subs_ = nh_->subscribe("/bigman/joint_states", 1, &Node::JointStateCallback, this);
 }
 
 void Node::Run()  {
 
-  ros::Rate r(node_rate_);
-
-  std::ofstream log_file;
-  log_file.open (log_file_name.c_str());
-
-  // ROS time
-  ros::Time ros_time;
-  ros::Time::now();
-
-  // Set Precision
-  log_file << std::fixed;
-  log_file << std::setprecision(LOG_PRECISION);
-
-  ROS_INFO_STREAM("Running at " << node_rate_<< " Hz ...");
-
-  while (nh_->ok()) {
-    ros_time  = ros::Time::now();
-
-    // Time (seconds and milliseconds)
-    log_file << (ros_time.sec * 1.0) << LOG_FORMAT << (ros_time.nsec / 1000000.0);
-
-    // MVNSuit
-    for (unsigned int ii = 0; ii < mvnbiomech_angles_.size(); ii++) {
-      log_file << LOG_FORMAT << mvnbiomech_angles_.at(ii);
-    }
-
-    // Gazebo JointState
-    for (unsigned int ii = 0; ii < gazebo_angles_.size(); ii++) {
-      log_file << LOG_FORMAT << gazebo_angles_.at(ii);
-    }
-
-    log_file << std::endl;
-    r.sleep();
-  }
-
-  log_file.close();
+  ros::spin();
 
 }
 
@@ -259,6 +226,49 @@ void Node::MVNBiomechServerThread() {
   delete[] buffer;
   delete socket;
 }
+
+
+void Node::LogThread() {
+  ros::Rate r(logger_rate_);
+
+  std::ofstream log_file;
+  nh_->param<std::string>("log_file_name", log_file_name, "walkman_trajectories.txt");
+  log_file.open (log_file_name.c_str());
+
+  // ROS time
+  ros::Time ros_time;
+  ros::Time::now();
+
+  // Set Precision
+  log_file << std::fixed;
+  log_file << std::setprecision(LOG_PRECISION);
+
+  ROS_INFO_STREAM("Logging at " << logger_rate_<< " Hz ...");
+
+  while (nh_->ok()) {
+    ros_time  = ros::Time::now();
+
+    // Time (seconds and milliseconds)
+    log_file << (ros_time.sec * 1.0) << LOG_FORMAT << (ros_time.nsec / 1000000.0);
+
+    // MVNSuit
+    for (unsigned int ii = 0; ii < mvnbiomech_angles_.size(); ii++) {
+      log_file << LOG_FORMAT << mvnbiomech_angles_.at(ii);
+    }
+
+    // Gazebo JointState
+    for (unsigned int ii = 0; ii < gazebo_angles_.size(); ii++) {
+      log_file << LOG_FORMAT << gazebo_angles_.at(ii);
+    }
+
+    log_file << std::endl;
+    r.sleep();
+  }
+
+  log_file.close();
+
+}
+
 
 void Node::JointStateCallback(const sensor_msgs::JointStateConstPtr &message) {
   //ROS_INFO_STREAM(message->position.size()) ;

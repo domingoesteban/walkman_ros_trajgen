@@ -180,21 +180,21 @@ add_dependencies(joint_trajgen
         ${catkin_EXPORTED_TARGETS}
         )
 
-## C++ executable
-add_executable(joint_trajgen_mvnbiomech src/joint-trajgen-and-mvnbiomech.cpp)
-
-## Specify libraries to link a library or executable target against
-target_link_libraries(joint_trajgen_mvnbiomech
-        ${catkin_LIBRARIES}
-        mvnbiomech
-        )
-
-## Cmake target dependencies
-add_dependencies(joint_trajgen_mvnbiomech
-        ${PROJECT_NAME}_gencpp
-        ${${PROJECT_NAME}_EXPORTED_TARGETS}
-        ${catkin_EXPORTED_TARGETS}
-        )
+### C++ executable
+#add_executable(joint_trajgen_mvnbiomech src/joint-trajgen-and-mvnbiomech.cpp)
+#
+### Specify libraries to link a library or executable target against
+#target_link_libraries(joint_trajgen_mvnbiomech
+#        ${catkin_LIBRARIES}
+#        mvnbiomech
+#        )
+#
+### Cmake target dependencies
+#add_dependencies(joint_trajgen_mvnbiomech
+#        ${PROJECT_NAME}_gencpp
+#        ${${PROJECT_NAME}_EXPORTED_TARGETS}
+#        ${catkin_EXPORTED_TARGETS}
+#        )
 
 ## C++ executable
 add_executable(mvnbiomech_jointstate_logger src/mvnbiomech-jointstate-logger.cpp)
